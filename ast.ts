@@ -1,4 +1,7 @@
-type StringOrAstNode = string | AstNode;
+type AstNodeLike =
+  | (string | AstNode)
+  | AstNodeLike[]
+  | (() => AstNodeLike | AstNodeLike[]);
 
 abstract class AstNode {
   constructor() {}
@@ -15,10 +18,36 @@ abstract class AstNode {
   public toString(): string {
     return JSON.stringify(this, null, 2);
   }
+
+  public newLine(): AstNodeLike {
+    return [this, newLine()];
+  }
+
+  public newLineIfNotLast(): AstNodeLike {
+    return [this, newLineIfNotLastNode()];
+  }
+
+  public statement(): StatementNode {
+    return statement(this);
+  }
+
+  public indent(): IndentNode {
+    return indent(this);
+  }
+}
+
+class NewLineAstNode extends AstNode {
+  public write(writer: Writer) {
+    writer.newLine();
+  }
+}
+
+function newLine() : NewLineAstNode{
+  return new NewLineAstNode();
 }
 
 class StatementNode extends AstNode {
-  constructor(private nodes: AstNode[]) {
+  constructor(private nodes: AstNodeLike[]) {
     super();
   }
 
@@ -27,12 +56,12 @@ class StatementNode extends AstNode {
   }
 }
 
-function statement(...nodes: AstNode[]) {
+function statement(...nodes: AstNodeLike[]) {
   return new StatementNode(nodes);
 }
 
 class LineNode extends AstNode {
-  constructor(private nodes: AstNode[]) {
+  constructor(private nodes: AstNodeLike[]) {
     super();
   }
   public write(writer: Writer) {
@@ -41,7 +70,7 @@ class LineNode extends AstNode {
   }
 }
 
-function line(...nodes: AstNode[]) {
+function line(...nodes: AstNodeLike[]) {
   return new LineNode(nodes);
 }
 
@@ -67,7 +96,7 @@ function empty() {
 }
 
 class IndentNode extends AstNode {
-  constructor(private nodes: AstNode[]) {
+  constructor(private nodes: AstNodeLike[]) {
     super();
   }
   public write(writer: Writer) {
@@ -77,12 +106,12 @@ class IndentNode extends AstNode {
   }
 }
 
-function indent(...nodes: AstNode[]) {
+function indent(...nodes: AstNodeLike[]) {
   return new IndentNode(nodes);
 }
 
 class ScopeNode extends AstNode {
-  constructor(private nodes: AstNode[]) {
+  constructor(private nodes: AstNodeLike[]) {
     super();
   }
   public write(writer: Writer) {
@@ -94,8 +123,8 @@ class ScopeNode extends AstNode {
   }
 }
 
-function scope(...nodes: AstNode[]) {
-  return new ScopeNode(nodes);
+function scope(...nodes: AstNodeLike[]) {
+  return new ScopeNode(astNodeLikeToNodes(nodes));
 }
 
 class TextNode extends AstNode {
@@ -109,33 +138,6 @@ class TextNode extends AstNode {
 
 function text(text: string) {
   return new TextNode(text);
-}
-
-class AstCallback extends AstNode {
-  private nodes: AstNode | AstNode[];
-  constructor(getNodes: () => AstNode | AstNode[]) {
-    super();
-    this.nodes = getNodes();
-  }
-  public write(writer: Writer) {
-    if (this.nodes instanceof AstNode) {
-      this.nodes.write(writer);
-    } else if (Array.isArray(this.nodes)) {
-      for (const node of this.nodes) {
-        if (node instanceof AstNode) {
-          node.write(writer);
-        } else {
-          throw new Error(`Unsupported node type: ${typeof node}`);
-        }
-      }
-    } else {
-      throw new Error(`Unsupported node type: ${typeof this.nodes}`);
-    }
-  }
-}
-
-function callback(getNodes: () => AstNode | AstNode[]) {
-  return new AstCallback(getNodes);
 }
 
 class ClassReferenceNode extends AstNode {
@@ -152,7 +154,7 @@ function classReference(classReference: string) {
 }
 
 class AstNodeList extends AstNode {
-  constructor(private nodes: AstNode[]) {
+  constructor(private nodes: AstNodeLike[]) {
     super();
   }
   public write(writer: Writer) {
@@ -164,16 +166,43 @@ function nodeList(...nodes: AstNode[]) {
   return new AstNodeList(nodes);
 }
 
+function astNodeLikeToNodes(nodes: AstNodeLike | AstNodeLike[]): AstNode[] {
+  if (typeof nodes === "function") {
+    nodes = nodes();
+  }
+  if (!Array.isArray(nodes)) {
+    nodes = [nodes];
+  }
+  return nodes.flatMap(
+    (node: AstNode | string | AstNodeLike): AstNode | AstNode[] => {
+      if (node instanceof AstNode) {
+        return node;
+      } else if (typeof node === "string") {
+        return new TextNode(node);
+      } else if (Array.isArray(node)) {
+        return astNodeLikeToNodes(node);
+      } else if (typeof node === "function") {
+        return astNodeLikeToNodes(node());
+      } else {
+        throw new Error(`Unsupported node type: ${typeof node}`);
+      }
+    }
+  );
+}
+
 class Writer {
   private static readonly INDENTATION = "  ";
   private buffer: string = "";
   private indentation: string = "";
 
-  public write(...stringsOrNodes: StringOrAstNode[]): void {
-    for (const node of stringsOrNodes) {
+  public write(...nodeLikes: AstNodeLike[]): void {
+    for (const node of nodeLikes) {
       if (typeof node === "string") {
         this.buffer += node;
-      } else if (node instanceof AstNode) {
+        continue;
+      }
+      const nodes = astNodeLikeToNodes(node);
+      for (const node of nodes) {
         node.write(this);
       }
     }
@@ -203,21 +232,15 @@ class Writer {
   public get ast() {
     return (
       strings: TemplateStringsArray,
-      ...values: StringOrAstNode[]
+      ...values: AstNodeLike[]
     ): AstNode => {
-      const nodes: AstNode[] = [];
+      const nodes: AstNodeLike[] = [];
       for (let i = 0; i < strings.length; i++) {
         if (i > 0) {
           const value = values[i - 1];
-          if (value instanceof AstNode) {
-            nodes.push(value);
-          } else if (typeof value === "string") {
-            nodes.push(new TextNode(value));
-          } else {
-            throw new Error(`Unsupported value type: ${typeof value}`);
-          }
+          nodes.push(...astNodeLikeToNodes(value));
         }
-        nodes.push(new TextNode(strings[i]));
+        nodes.push(strings[i]);
       }
       return new AstNodeList(nodes);
     };
@@ -228,7 +251,6 @@ class Writer {
   }
 }
 
-// example usage
 const writer = new Writer();
 const ast = writer.ast;
 
@@ -236,13 +258,13 @@ export {
   ast,
   statement,
   line,
+  newLine,
   newLineIfNotLastNode,
   empty,
   indent,
   scope,
   text,
-  callback,
   classReference,
   nodeList,
-  Writer
-}
+  Writer,
+};

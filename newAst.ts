@@ -1,4 +1,9 @@
-import { classReference, line, ast, scope, callback, indent, empty, statement } from "./ast";
+import {
+  classReference,
+  ast,
+  scope,
+  newLine,
+} from "./ast";
 
 const jsonObjReference = classReference("JsonObject");
 const unions = [
@@ -27,36 +32,33 @@ const unions = [
 const discriminantPropertyName = "Type";
 const valuePropertyName = "Value";
 export default [
-  line(
-    ast`${jsonObjReference} json = value.${discriminantPropertyName} switch`
-  ),
+  ast`${jsonObjReference} json = value.${discriminantPropertyName} switch`.newLine(),
   scope(
-    ...unions.map((type) => {
-      return line(
+    ...unions.flatMap((type) => {
+      return [
         ast`"${type.discriminantValue.wireValue}" => `,
-        callback(() => {
+        () => {
           switch (type.shape.propertiesType) {
             case "samePropertiesAsObject":
-              return ast`JsonSerializer.SerializeToNode(value.Value, options),`;
+              return "JsonSerializer.SerializeToNode(value.Value, options),";
             case "singleProperty":
               return [
-                line(ast`new ${jsonObjReference}`),
-                indent(
-                  scope(
-                    ast`["${type.shape.name.wireValue}"] = JsonSerializer.SerializeToNode(value.${valuePropertyName}, options)`
-                  )
-                ),
-                ast`,`,
+                ast`new ${jsonObjReference}`.newLine(),
+                scope(
+                  ast`["${type.shape.name.wireValue}"] = JsonSerializer.SerializeToNode(value.${valuePropertyName}, options)`
+                ).indent(),
+                ",",
               ];
             case "noProperties":
-              return ast`null,`;
+              return "null,";
             default:
-              return empty();
+              return "";
           }
-        })
-      );
+        },
+        newLine(),
+      ];
     }),
-    ast`_ => JsonSerializer.SerializeToNode(value.Value, options)`
+    "_ => JsonSerializer.SerializeToNode(value.Value, options)"
   ),
-  statement(ast` ?? new ${jsonObjReference}()`),
+  ast` ?? new ${jsonObjReference}()`.statement(),
 ];
