@@ -18,6 +18,14 @@ export function ast(strings: TemplateStringsArray, ...values: AstArg[]): Abstrac
     return new AstTemplateNode(strings, values);
 }
 
+function writeTemplate(writer: IWriter, strings: TemplateStringsArray, values: AstArg[]): void {
+    for (let i = 0; i < strings.length; i++) {
+        if (i > 0) writeArg(writer, values[i - 1]!);
+        const s = strings[i]!;
+        if (s) writer.write(s);
+    }
+}
+
 class AstTemplateNode extends AbstractAstNode {
     constructor(
         private readonly strings: TemplateStringsArray,
@@ -27,11 +35,7 @@ class AstTemplateNode extends AbstractAstNode {
     }
 
     public write(writer: IWriter): void {
-        for (let i = 0; i < this.strings.length; i++) {
-            if (i > 0) writeArg(writer, this.values[i - 1]!);
-            const s = this.strings[i]!;
-            if (s) writer.write(s);
-        }
+        writeTemplate(writer, this.strings, this.values);
     }
 }
 
@@ -62,11 +66,7 @@ export class RawNode extends Statement {
     }
 
     public write(writer: IWriter): void {
-        for (let i = 0; i < this.strings.length; i++) {
-            if (i > 0) writeArg(writer, this.values[i - 1]!);
-            const s = this.strings[i]!;
-            if (s) writer.write(s);
-        }
+        writeTemplate(writer, this.strings, this.values);
     }
 }
 

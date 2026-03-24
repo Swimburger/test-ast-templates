@@ -125,7 +125,7 @@ export abstract class AbstractWriter implements IWriter {
         this.buffer_ += text;
         const indent = this.getIndentString();
         this.lastCharacterIsNewline = this.buffer_.endsWith(`\n${indent}`) || this.buffer_.endsWith("\n");
-        const t = this.languageConfig?.statementTerminator ?? ";";
+        const t = this.languageConfig.statementTerminator;
         this.lastCharacterIsTerminator = t.length > 0 && text.endsWith(t);
     }
 
