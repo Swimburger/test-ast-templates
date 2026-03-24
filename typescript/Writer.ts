@@ -1,10 +1,11 @@
 import { AbstractWriter, type IndentStyle } from "../core/AbstractWriter.js";
+import { TYPESCRIPT_CONFIG } from "../core/ILanguageConfig.js";
 import type { Reference } from "../core/Reference.js";
 import type { TypeScriptReference } from "./Reference.js";
 
 export class Writer extends AbstractWriter {
     constructor(opts: { indentStyle?: IndentStyle } = {}) {
-        super(opts);
+        super({ ...opts, languageConfig: TYPESCRIPT_CONFIG });
     }
 
     private readonly namedImports = new Map<string, Set<string>>();
@@ -30,7 +31,7 @@ export class Writer extends AbstractWriter {
 
     public override toString(): string {
         const imports = this.stringifyImports();
-        return imports ? `${imports}\n${this.buffer}` : this.buffer;
+        return imports ? `${imports}\n\n${this.buffer}` : this.buffer;
     }
 
     public importsToString(): string {

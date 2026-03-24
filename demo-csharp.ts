@@ -5,9 +5,8 @@
 //   src/Errors/ApiException.cs — base exception class
 //   src/ShapeClient.cs        — async service client with one endpoint
 //
-// Run with: npx tsx demo.ts
+// Run with: npx tsx demo-csharp.ts
 
-import { ast } from "./core/index.js";
 import { cs } from "./csharp/index.js";
 
 const opts = { indentStyle: { type: "spaces" as const, size: 4 } };
@@ -94,15 +93,15 @@ file("src/Types/Shape.cs", [
                 })
                 .typeParam("T")
                 .returns("T")
-                .params(unionTypes.map((t) => ({ name: `on${t.pascalCase}`, type: ast`Func<${t.pascalCase}, T>` })))
+                .params(unionTypes.map((t) => ({ name: `on${t.pascalCase}`, type: cs.raw`Func<${t.pascalCase}, T>` })))
                 .body(
                     cs.return(
                         cs.switchExpression(discriminant)
                             .arms(unionTypes.map((t) => ({
                                 pattern: `"${t.wireValue}"`,
-                                body: ast`on${t.pascalCase}(As${t.pascalCase}!)`,
+                                body: cs.raw`on${t.pascalCase}(As${t.pascalCase}!)`,
                             })))
-                            .default(cs.throw(cs.instantiate(JsonException).arg(ast`$"Unknown type: {${discriminant}}"`))),
+                            .default(cs.throw(cs.instantiate(JsonException).arg(cs.raw`$"Unknown type: {${discriminant}}""`))),
                     ),
                 )
                 .build(),
@@ -110,14 +109,14 @@ file("src/Types/Shape.cs", [
         .method(
             cs.method("Visit")
                 .access("public")
-                .params(unionTypes.map((t) => ({ name: `on${t.pascalCase}`, type: ast`Action<${t.pascalCase}>` })))
+                .params(unionTypes.map((t) => ({ name: `on${t.pascalCase}`, type: cs.raw`Action<${t.pascalCase}>` })))
                 .body(
                     cs.switch(discriminant)
                         .cases(unionTypes.map((t) => ({
                             value: t.wireValue,
-                            body: ast`on${t.pascalCase}(As${t.pascalCase}!)`,
+                            body: cs.raw`on${t.pascalCase}(As${t.pascalCase}!)`,
                         })))
-                        .default(cs.throw(cs.instantiate(JsonException).arg(ast`$"Unknown type: {${discriminant}}"`))),
+                        .default(cs.throw(cs.instantiate(JsonException).arg(cs.raw`$"Unknown type: {${discriminant}}"`))),
                 )
                 .build(),
         )
@@ -137,10 +136,10 @@ file("src/Types/Shape.cs", [
                     cs.method("CreateConverter")
                         .access("public")
                         .override()
-                        .returns(ast`System.Text.Json.Serialization.JsonConverter?`)
+                        .returns(cs.raw`System.Text.Json.Serialization.JsonConverter?`)
                         .param({ name: "typeToConvert", type: "Type" })
                         .param({ name: "options",       type: JsonSerializerOptions })
-                        .body(cs.return(ast`new ShapeConverter(options)`))
+                        .body(cs.return(cs.raw`new ShapeConverter(options)`))
                         .build(),
                 )
                 .build(),
@@ -174,7 +173,7 @@ file("src/Errors/ApiException.cs", [
                 .access("public")
                 .override()
                 .returns("string")
-                .body(cs.return(ast`$"ApiException: {Message}\\nStatus: {StatusCode}\\nBody: {Body}"`))
+                .body(cs.return(cs.raw`$"ApiException: {Message}\\nStatus: {StatusCode}\\nBody: {Body}"`))
                 .build(),
         )
         .build(),
@@ -211,18 +210,18 @@ file("src/ShapeClient.cs", [
                 .returns("Shape")
                 .param({ name: "id", type: "string" })
                 .body(
-                    ast`var response = await _client.GetAsync($"/shapes/{id}", cancellationToken).ConfigureAwait(false)`,
+                    cs.raw`var response = await _client.GetAsync($"/shapes/{id}", cancellationToken).ConfigureAwait(false);`,
                     cs.if("!response.IsSuccessStatusCode")
                         .then(
-                            cs.using("errorBody", ast`response.Content.ReadAsStream()`)
+                            cs.using("errorBody", cs.raw`response.Content.ReadAsStream()`)
                                 .declaration()
                                 .build(),
                             cs.throw(cs.instantiate(ApiException).arg('"Request failed"').arg("(int)response.StatusCode").arg('"error"')),
                         ),
-                    ast`var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)`,
+                    cs.raw`var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);`,
                     cs.return(
                         cs.nullCoalesce(
-                            ast`${JsonSerializer}.Deserialize<Shape>(json)`,
+                            cs.raw`${JsonSerializer}.Deserialize<Shape>(json)`,
                             cs.throw(cs.instantiate(JsonException).arg('"Response was null"')),
                         ),
                     ),
@@ -239,9 +238,9 @@ file("src/ShapeClient.cs", [
                 })
                 .param({ name: "shape", type: "Shape" })
                 .body(
-                    ast`var json    = ${JsonSerializer}.Serialize(shape)`,
-                    ast`var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")`,
-                    cs.using("response", ast`await _client.PostAsync("/shapes", content, cancellationToken).ConfigureAwait(false)`)
+                    cs.raw`var json    = ${JsonSerializer}.Serialize(shape);`,
+                    cs.raw`var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");`,
+                    cs.using("response", cs.raw`await _client.PostAsync("/shapes", content, cancellationToken).ConfigureAwait(false)`)
                         .body(
                             cs.if("!response.IsSuccessStatusCode")
                                 .then(

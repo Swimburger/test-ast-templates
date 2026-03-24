@@ -1,6 +1,7 @@
 import { AbstractAstNode } from "./AbstractAstNode.js";
 import { type AstArg, writeArg } from "./AstTemplate.js";
 import type { IWriter } from "./IWriter.js";
+import { Statement } from "./Statement.js";
 
 class IndentNode extends AbstractAstNode {
     constructor(private readonly args: AstArg[]) { super(); }
@@ -50,3 +51,32 @@ export function newLine(): AbstractAstNode { return new NewLineNode(); }
 export function newLineIfNotLast(): AbstractAstNode { return new NewLineIfNotLastNode(); }
 export function statement(...args: AstArg[]): AbstractAstNode { return new StatementNode(args); }
 export function line(...args: AstArg[]): AbstractAstNode { return new LineNode(args); }
+
+export function writeArgStatement(writer: IWriter, arg: AstArg): void {
+    if (arg instanceof Statement) {
+        writeArg(writer, arg);
+        writer.writeNewLineIfLastLineNot();
+    } else {
+        writeArg(writer, arg);
+        writer.writeStatement();
+    }
+}
+
+export function writeBodyArgs(writer: IWriter, args: AstArg[], options?: { tailExpr?: boolean }): void {
+    for (let i = 0; i < args.length; i++) {
+        const isLast = i === args.length - 1;
+        if (options?.tailExpr && isLast && !(args[i] instanceof Statement)) {
+            writeArg(writer, args[i]!);
+            writer.writeNewLineIfLastLineNot();
+        } else {
+            writeArgStatement(writer, args[i]!);
+        }
+    }
+}
+
+export function writeDelimited(writer: IWriter, args: AstArg[], separator = ", "): void {
+    for (let i = 0; i < args.length; i++) {
+        if (i > 0) writer.write(separator);
+        writeArg(writer, args[i]!);
+    }
+}

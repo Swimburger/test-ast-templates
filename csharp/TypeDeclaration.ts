@@ -30,6 +30,16 @@ import { MethodNode, ConstructorNode } from "./Method.js";
 import { Property } from "./Property.js";
 import { FieldNode, ConstantNode } from "./Field.js";
 import { EnumNode } from "./Enum.js";
+import type { CsMemberNode } from "./slots.js";
+
+// Phantom state tags for type declaration builders.
+declare const _csIsSealed:   unique symbol;
+declare const _csIsAbstract: unique symbol;
+declare const _csHasExtends: unique symbol;
+
+export type CsIsSealed   = { readonly [_csIsSealed]:   true };
+export type CsIsAbstract = { readonly [_csIsAbstract]: true };
+export type CsHasExtends = { readonly [_csHasExtends]: true };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,7 +62,7 @@ export class TypeDeclarationNode extends AbstractAstNode {
     public namespace_: string | undefined;
     public readonly attributes_: ClassAttribute[] = [];
     public readonly typeParams_: string[] = [];
-    public readonly members_: AbstractAstNode[] = [];
+    public readonly members_: CsMemberNode[] = [];
     public readonly baseTypes_: AstArg[] = [];
     public baseCtorArgs_: AstArg[] = [];
     public primaryCtor_: PrimaryCtorParam[] | undefined;
@@ -151,166 +161,175 @@ export class TypeDeclarationNode extends AbstractAstNode {
 }
 
 // ---------------------------------------------------------------------------
-// TypeDeclaration<TState> — phantom-type wrapper
+// Shared base — methods common to all C# type declarations
 // ---------------------------------------------------------------------------
 
-export class TypeDeclaration<TState = object> {
+class TypeDeclarationBase {
     constructor(protected readonly node: TypeDeclarationNode) {}
 
-    public access<S extends TState>(this: TypeDeclaration<S>, a: Access): TypeDeclaration<S> {
-        this.node.access_ = a;
-        return this as any;
-    }
+    public access(a: Access): this { this.node.access_ = a; return this; }
+    public namespace(ns: string): this { this.node.namespace_ = ns; return this; }
+    public partial(): this { this.node.partial_ = true; return this; }
+    public typeParam(name: string): this { this.node.typeParams_.push(name); return this; }
+    public doc(d: string | XmlDoc): this { this.node.doc_ = d; return this; }
+    public attribute(attr: ClassAttribute): this { this.node.attributes_.push(attr); return this; }
 
-    public namespace<S extends TState>(this: TypeDeclaration<S>, ns: string): TypeDeclaration<S> {
-        this.node.namespace_ = ns;
-        return this as any;
-    }
+    public method(m: MethodNode): this { this.node.members_.push(m); return this; }
+    public methods(ms: MethodNode[]): this { this.node.members_.push(...ms); return this; }
+    public nestedEnum(e: EnumNode): this { this.node.members_.push(e); return this; }
 
-    public sealed<S extends TState>(this: TypeDeclaration<S>): TypeDeclaration<S> {
+    public build(): TypeDeclarationNode { return this.node; }
+}
+
+// ---------------------------------------------------------------------------
+// ClassDeclaration — `class`
+//
+// Has: sealed, abstract (mutex), static, extends (once), implements,
+//      fields, constants, ctor, properties, nested types
+// ---------------------------------------------------------------------------
+
+export class ClassDeclaration<TState = object> extends TypeDeclarationBase {
+    // sealed() — disappears after abstract()
+    public sealed<S extends TState>(
+        this: ClassDeclaration<S & (S extends CsIsAbstract ? never : S)>,
+    ): ClassDeclaration<S & CsIsSealed> {
         this.node.sealed_ = true;
         return this as any;
     }
 
-    public abstract<S extends TState>(this: TypeDeclaration<S>): TypeDeclaration<S> {
+    // abstract() — disappears after sealed()
+    public abstract<S extends TState>(
+        this: ClassDeclaration<S & (S extends CsIsSealed ? never : S)>,
+    ): ClassDeclaration<S & CsIsAbstract> {
         this.node.abstract_ = true;
         return this as any;
     }
 
-    public static<S extends TState>(this: TypeDeclaration<S>): TypeDeclaration<S> {
-        this.node.static_ = true;
-        return this as any;
-    }
+    public static(): this { this.node.static_ = true; return this; }
 
-    public partial<S extends TState>(this: TypeDeclaration<S>): TypeDeclaration<S> {
-        this.node.partial_ = true;
-        return this as any;
-    }
-
-    public typeParam<S extends TState>(this: TypeDeclaration<S>, name: string): TypeDeclaration<S> {
-        this.node.typeParams_.push(name);
-        return this as any;
-    }
-
-    public doc<S extends TState>(this: TypeDeclaration<S>, d: string | XmlDoc): TypeDeclaration<S> {
-        this.node.doc_ = d;
-        return this as any;
-    }
-
-    public attribute<S extends TState>(this: TypeDeclaration<S>, attr: ClassAttribute): TypeDeclaration<S> {
-        this.node.attributes_.push(attr);
-        return this as any;
-    }
-
-    public extends<S extends TState>(this: TypeDeclaration<S>, base: AstArg, ctorArgs?: AstArg[]): TypeDeclaration<S> {
+    // extends() — only callable once
+    public extends<S extends TState>(
+        this: ClassDeclaration<S & (S extends CsHasExtends ? never : S)>,
+        base: AstArg,
+        ctorArgs?: AstArg[],
+    ): ClassDeclaration<S & CsHasExtends> {
         this.node.baseTypes_.unshift(base);
         if (ctorArgs) this.node.baseCtorArgs_ = ctorArgs;
         return this as any;
     }
 
-    public implements<S extends TState>(this: TypeDeclaration<S>, ...ifaces: AstArg[]): TypeDeclaration<S> {
-        this.node.baseTypes_.push(...ifaces);
+    public implements(...ifaces: AstArg[]): this { this.node.baseTypes_.push(...ifaces); return this; }
+
+    public field(f: FieldNode): this { this.node.members_.push(f); return this; }
+    public fields(fs: FieldNode[]): this { this.node.members_.push(...fs); return this; }
+    public constant(c: ConstantNode): this { this.node.members_.push(c); return this; }
+    public constants(cs: ConstantNode[]): this { this.node.members_.push(...cs); return this; }
+    public property(p: Property): this { this.node.members_.push(p); return this; }
+    public properties(ps: Property[]): this { this.node.members_.push(...ps); return this; }
+    public primaryCtor(params: PrimaryCtorParam[]): this { this.node.primaryCtor_ = params; return this; }
+    public ctor(c: ConstructorNode): this { this.node.members_.push(c); return this; }
+    public nestedClass(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+    public nestedRecord(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+    public nestedRecords(ts: TypeDeclarationNode[]): this { this.node.members_.push(...ts); return this; }
+    public nestedInterface(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+    public nestedStruct(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+    public nestedRecordStruct(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+}
+
+// ---------------------------------------------------------------------------
+// RecordDeclaration — `record` / `record class`
+//
+// Has: sealed, abstract (mutex), primaryCtor, extends (once), implements,
+//      properties, nested types. No static, no explicit ctor.
+// ---------------------------------------------------------------------------
+
+export class RecordDeclaration<TState = object> extends TypeDeclarationBase {
+    // sealed() — disappears after abstract()
+    public sealed<S extends TState>(
+        this: RecordDeclaration<S & (S extends CsIsAbstract ? never : S)>,
+    ): RecordDeclaration<S & CsIsSealed> {
+        this.node.sealed_ = true;
         return this as any;
     }
 
-    public primaryCtor<S extends TState>(this: TypeDeclaration<S>, params: PrimaryCtorParam[]): TypeDeclaration<S> {
-        this.node.primaryCtor_ = params;
+    // abstract() — disappears after sealed()
+    public abstract<S extends TState>(
+        this: RecordDeclaration<S & (S extends CsIsSealed ? never : S)>,
+    ): RecordDeclaration<S & CsIsAbstract> {
+        this.node.abstract_ = true;
         return this as any;
     }
 
-    // -- Typed member methods --
+    public primaryCtor(params: PrimaryCtorParam[]): this { this.node.primaryCtor_ = params; return this; }
 
-    public field<S extends TState>(this: TypeDeclaration<S>, f: FieldNode): TypeDeclaration<S> {
-        this.node.members_.push(f);
+    // extends() — only callable once
+    public extends<S extends TState>(
+        this: RecordDeclaration<S & (S extends CsHasExtends ? never : S)>,
+        base: AstArg,
+        ctorArgs?: AstArg[],
+    ): RecordDeclaration<S & CsHasExtends> {
+        this.node.baseTypes_.unshift(base);
+        if (ctorArgs) this.node.baseCtorArgs_ = ctorArgs;
         return this as any;
     }
 
-    public fields<S extends TState>(this: TypeDeclaration<S>, fs: FieldNode[]): TypeDeclaration<S> {
-        this.node.members_.push(...fs);
-        return this as any;
-    }
+    public implements(...ifaces: AstArg[]): this { this.node.baseTypes_.push(...ifaces); return this; }
 
-    public property<S extends TState>(this: TypeDeclaration<S>, p: Property): TypeDeclaration<S> {
-        this.node.members_.push(p);
-        return this as any;
-    }
+    public property(p: Property): this { this.node.members_.push(p); return this; }
+    public properties(ps: Property[]): this { this.node.members_.push(...ps); return this; }
+    public constant(c: ConstantNode): this { this.node.members_.push(c); return this; }
+    public constants(cs: ConstantNode[]): this { this.node.members_.push(...cs); return this; }
+    public nestedClass(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+    public nestedRecord(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+    public nestedRecords(ts: TypeDeclarationNode[]): this { this.node.members_.push(...ts); return this; }
+    public nestedInterface(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+    public nestedStruct(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+    public nestedRecordStruct(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+}
 
-    public properties<S extends TState>(this: TypeDeclaration<S>, ps: Property[]): TypeDeclaration<S> {
-        this.node.members_.push(...ps);
-        return this as any;
-    }
+// ---------------------------------------------------------------------------
+// InterfaceDeclaration — `interface`
+//
+// No: fields, constants, ctor, sealed, abstract, static, extends with ctor args
+// Has: implements (interface inheritance uses the same base list in C#)
+// ---------------------------------------------------------------------------
 
-    public constant<S extends TState>(this: TypeDeclaration<S>, c: ConstantNode): TypeDeclaration<S> {
-        this.node.members_.push(c);
-        return this as any;
-    }
+export class InterfaceDeclaration extends TypeDeclarationBase {
+    public implements(...ifaces: AstArg[]): this { this.node.baseTypes_.push(...ifaces); return this; }
 
-    public constants<S extends TState>(this: TypeDeclaration<S>, cs: ConstantNode[]): TypeDeclaration<S> {
-        this.node.members_.push(...cs);
-        return this as any;
-    }
+    public property(p: Property): this { this.node.members_.push(p); return this; }
+    public properties(ps: Property[]): this { this.node.members_.push(...ps); return this; }
+    public nestedInterface(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
+}
 
-    public ctor<S extends TState>(this: TypeDeclaration<S>, c: ConstructorNode): TypeDeclaration<S> {
-        this.node.members_.push(c);
-        return this as any;
-    }
+// ---------------------------------------------------------------------------
+// StructDeclaration — `struct` / `record struct`
+//
+// No: abstract, static, extends. Has: implements, sealed (record struct only),
+//     fields, properties, ctor
+// ---------------------------------------------------------------------------
 
-    public method<S extends TState>(this: TypeDeclaration<S>, m: MethodNode): TypeDeclaration<S> {
-        this.node.members_.push(m);
-        return this as any;
-    }
+export class StructDeclaration extends TypeDeclarationBase {
+    public sealed(): this { this.node.sealed_ = true; return this; }
+    public implements(...ifaces: AstArg[]): this { this.node.baseTypes_.push(...ifaces); return this; }
+    public primaryCtor(params: PrimaryCtorParam[]): this { this.node.primaryCtor_ = params; return this; }
 
-    public methods<S extends TState>(this: TypeDeclaration<S>, ms: MethodNode[]): TypeDeclaration<S> {
-        this.node.members_.push(...ms);
-        return this as any;
-    }
-
-    public nestedClass<S extends TState>(this: TypeDeclaration<S>, t: TypeDeclarationNode): TypeDeclaration<S> {
-        this.node.members_.push(t);
-        return this as any;
-    }
-
-    public nestedRecord<S extends TState>(this: TypeDeclaration<S>, t: TypeDeclarationNode): TypeDeclaration<S> {
-        this.node.members_.push(t);
-        return this as any;
-    }
-
-    public nestedRecords<S extends TState>(this: TypeDeclaration<S>, ts: TypeDeclarationNode[]): TypeDeclaration<S> {
-        this.node.members_.push(...ts);
-        return this as any;
-    }
-
-    public nestedInterface<S extends TState>(this: TypeDeclaration<S>, t: TypeDeclarationNode): TypeDeclaration<S> {
-        this.node.members_.push(t);
-        return this as any;
-    }
-
-    public nestedStruct<S extends TState>(this: TypeDeclaration<S>, t: TypeDeclarationNode): TypeDeclaration<S> {
-        this.node.members_.push(t);
-        return this as any;
-    }
-
-    public nestedRecordStruct<S extends TState>(this: TypeDeclaration<S>, t: TypeDeclarationNode): TypeDeclaration<S> {
-        this.node.members_.push(t);
-        return this as any;
-    }
-
-    public nestedEnum<S extends TState>(this: TypeDeclaration<S>, e: EnumNode): TypeDeclaration<S> {
-        this.node.members_.push(e);
-        return this as any;
-    }
-
-    public build<S extends TState>(this: TypeDeclaration<S>): TypeDeclarationNode {
-        return this.node;
-    }
+    public field(f: FieldNode): this { this.node.members_.push(f); return this; }
+    public fields(fs: FieldNode[]): this { this.node.members_.push(...fs); return this; }
+    public constant(c: ConstantNode): this { this.node.members_.push(c); return this; }
+    public constants(cs: ConstantNode[]): this { this.node.members_.push(...cs); return this; }
+    public property(p: Property): this { this.node.members_.push(p); return this; }
+    public properties(ps: Property[]): this { this.node.members_.push(...ps); return this; }
+    public ctor(c: ConstructorNode): this { this.node.members_.push(c); return this; }
+    public nestedInterface(t: TypeDeclarationNode): this { this.node.members_.push(t); return this; }
 }
 
 // ---------------------------------------------------------------------------
 // Factories
 // ---------------------------------------------------------------------------
 
-export function record(name: string):       TypeDeclaration { return new TypeDeclaration(new TypeDeclarationNode(name, "record")); }
-export function csClass(name: string):      TypeDeclaration { return new TypeDeclaration(new TypeDeclarationNode(name, "class")); }
-export function csInterface(name: string):  TypeDeclaration { return new TypeDeclaration(new TypeDeclarationNode(name, "interface")); }
-export function struct(name: string):       TypeDeclaration { return new TypeDeclaration(new TypeDeclarationNode(name, "struct")); }
-export function recordStruct(name: string): TypeDeclaration { return new TypeDeclaration(new TypeDeclarationNode(name, "record struct")); }
+export function record(name: string):       RecordDeclaration    { return new RecordDeclaration(new TypeDeclarationNode(name, "record")); }
+export function csClass(name: string):      ClassDeclaration     { return new ClassDeclaration(new TypeDeclarationNode(name, "class")); }
+export function csInterface(name: string):  InterfaceDeclaration { return new InterfaceDeclaration(new TypeDeclarationNode(name, "interface")); }
+export function struct(name: string):       StructDeclaration    { return new StructDeclaration(new TypeDeclarationNode(name, "struct")); }
+export function recordStruct(name: string): StructDeclaration    { return new StructDeclaration(new TypeDeclarationNode(name, "record struct")); }

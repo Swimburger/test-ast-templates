@@ -8,12 +8,13 @@ import { type AstArg, writeArg } from "../core/AstTemplate.js";
 import type { IWriter } from "../core/IWriter.js";
 import { Statement } from "./Statement.js";
 import { writeArgStatement, writeDelimited } from "./helpers.js";
+import type { CsStatement } from "./slots.js";
 
 export { Statement } from "./Statement.js";
 export { Attribute, ClassAttribute, MethodAttribute, PropertyAttribute, ReturnAttribute, ParamAttribute,
          classAttribute, methodAttribute, propertyAttribute, returnAttribute, paramAttribute } from "./attributes.js";
 export { Method, method, Constructor, ctor, type Access, type ParamDef } from "./Method.js";
-export { TypeDeclaration, TypeDeclarationNode, record, csClass, csInterface, struct, recordStruct, type PrimaryCtorParam } from "./TypeDeclaration.js";
+export { TypeDeclarationNode, record, csClass, csInterface, struct, recordStruct, type PrimaryCtorParam, type ClassDeclaration, type RecordDeclaration, type InterfaceDeclaration, type StructDeclaration } from "./TypeDeclaration.js";
 export { Property, property } from "./Property.js";
 export { Field, field, FieldNode, Constant, constant, ConstantNode } from "./Field.js";
 
@@ -43,7 +44,7 @@ export { Field, field, FieldNode, Constant, constant, ConstantNode } from "./Fie
 
 interface IfClause {
     condition: AstArg | null; // null = else
-    body: AstArg[];
+    body: CsStatement[];
 }
 
 export class IfStatement extends Statement {
@@ -55,7 +56,7 @@ export class IfStatement extends Statement {
         this.pendingCondition = condition;
     }
 
-    public then(...body: AstArg[]): this {
+    public then(...body: CsStatement[]): this {
         this.clauses.push({ condition: this.pendingCondition, body });
         this.pendingCondition = null;
         return this;
@@ -66,7 +67,7 @@ export class IfStatement extends Statement {
         return this;
     }
 
-    public else(...body: AstArg[]): this {
+    public else(...body: CsStatement[]): this {
         this.clauses.push({ condition: null, body });
         return this;
     }
@@ -222,7 +223,7 @@ export function instantiate(type: AstArg): ObjectInstantiation {
 // ---------------------------------------------------------------------------
 
 export class ForEach extends Statement {
-    private readonly body_: AstArg[] = [];
+    private readonly body_: CsStatement[] = [];
 
     constructor(
         private readonly variable_: string,
@@ -231,7 +232,7 @@ export class ForEach extends Statement {
         super();
     }
 
-    public body(...args: AstArg[]): this {
+    public body(...args: CsStatement[]): this {
         this.body_.push(...args);
         return this;
     }

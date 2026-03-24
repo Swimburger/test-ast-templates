@@ -1,6 +1,7 @@
 import type { AbstractAstNode } from "./AbstractAstNode.js";
 import type { IWriter } from "./IWriter.js";
 import type { Reference } from "./Reference.js";
+import type { ILanguageConfig } from "./ILanguageConfig.js";
 
 export type IndentStyle =
     | { type: "tab" }
@@ -12,19 +13,19 @@ export abstract class AbstractWriter implements IWriter {
     private buffer_: string = "";
     private indentLevel = 0;
     private lastCharacterIsNewline = false;
-    private lastCharacterIsSemicolon = false;
+    private lastCharacterIsTerminator = false;
     private readonly indentStyle: IndentStyle;
+    public readonly languageConfig: ILanguageConfig;
 
-    constructor({ indentStyle = DEFAULT_INDENT }: { indentStyle?: IndentStyle } = {}) {
+    constructor({ indentStyle = DEFAULT_INDENT, languageConfig }: { indentStyle?: IndentStyle; languageConfig: ILanguageConfig }) {
         this.indentStyle = indentStyle;
+        this.languageConfig = languageConfig;
     }
 
     protected get buffer(): string {
         return this.buffer_;
     }
 
-    // Import tracking hook — no-op by default.
-    // Language-specific writers override this to collect references.
     public addReference(_ref: Reference): void {}
 
     public write(...parts: (string | AbstractAstNode | undefined)[]): void {
@@ -48,17 +49,19 @@ export abstract class AbstractWriter implements IWriter {
     }
 
     public writeStatement(...parts: (string | AbstractAstNode | undefined)[]): void {
-        this.write(...parts);
-        if (!this.lastCharacterIsSemicolon) {
-            this.writeRaw(";");
+        if (parts.length > 0) this.write(...parts);
+        const t = this.languageConfig.statementTerminator;
+        if (t.length > 0 && !this.lastCharacterIsTerminator) {
+            this.writeRaw(t);
         }
         this.writeNewLineIfLastLineNot();
     }
 
     public writeNodeStatement(node: AbstractAstNode): void {
         this.writeNode(node);
-        if (!this.lastCharacterIsSemicolon) {
-            this.writeRaw(";");
+        const t = this.languageConfig.statementTerminator;
+        if (t.length > 0 && !this.lastCharacterIsTerminator) {
+            this.writeRaw(t);
         }
         this.writeNewLineIfLastLineNot();
     }
@@ -88,14 +91,29 @@ export abstract class AbstractWriter implements IWriter {
     }
 
     public pushScope(): void {
-        this.writeLine("{");
+        const { scopeOpen, scopeStyle } = this.languageConfig;
+        if (scopeStyle === "allman") {
+            if (scopeOpen) this.writeLine(scopeOpen);
+            else this.newLine();
+        } else {
+            if (scopeOpen) this.write(` ${scopeOpen}`);
+            this.newLine();
+        }
+        this.indent();
+    }
+
+    public pushScopeInline(): void {
+        const { scopeOpen } = this.languageConfig;
+        if (scopeOpen) this.write(` ${scopeOpen}`);
+        this.newLine();
         this.indent();
     }
 
     public popScope(): void {
         this.dedent();
         this.writeNewLineIfLastLineNot();
-        this.write("}");
+        const { scopeClose } = this.languageConfig;
+        if (scopeClose) this.write(scopeClose);
     }
 
     public toString(): string {
@@ -107,7 +125,8 @@ export abstract class AbstractWriter implements IWriter {
         this.buffer_ += text;
         const indent = this.getIndentString();
         this.lastCharacterIsNewline = this.buffer_.endsWith(`\n${indent}`) || this.buffer_.endsWith("\n");
-        this.lastCharacterIsSemicolon = text.endsWith(";");
+        const t = this.languageConfig?.statementTerminator ?? ";";
+        this.lastCharacterIsTerminator = t.length > 0 && text.endsWith(t);
     }
 
     private getTabString(): string {

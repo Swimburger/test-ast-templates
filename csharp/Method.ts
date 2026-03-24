@@ -21,11 +21,13 @@
 
 import { AbstractAstNode } from "../core/AbstractAstNode.js";
 import { type AstArg, writeArg } from "../core/AstTemplate.js";
+import { writeArgStatement } from "../core/helpers.js";
 import type { IWriter } from "../core/IWriter.js";
 import { type Attribute, MethodAttribute, ParamAttribute, ReturnAttribute } from "./attributes.js";
 import { ClassReference } from "./ClassReference.js";
 import { type XmlDoc, writeXmlDoc } from "./docComment.js";
 import { Statement } from "./Statement.js";
+import type { CsStatement } from "./slots.js";
 
 const CANCELLATION_TOKEN = new ClassReference({ localName: "CancellationToken", namespace: "System.Threading" });
 
@@ -48,10 +50,10 @@ declare const _hasBody:     unique symbol;
 declare const _isAbstract:  unique symbol;
 declare const _isAsync:     unique symbol;
 
-type HasAccess  = { readonly [_hasAccess]:  true };
-type HasBody    = { readonly [_hasBody]:    true };
-type IsAbstract = { readonly [_isAbstract]: true };
-type IsAsync    = { readonly [_isAsync]:    true };
+export type HasAccess  = { readonly [_hasAccess]:  true };
+export type HasBody    = { readonly [_hasBody]:    true };
+export type IsAbstract = { readonly [_isAbstract]: true };
+export type IsAsync    = { readonly [_isAsync]:    true };
 
 // ---------------------------------------------------------------------------
 // MethodNode — holds all data, does the actual writing.
@@ -67,7 +69,7 @@ export class MethodNode extends AbstractAstNode {
     public returns_: AstArg | undefined;
     public readonly returnAttributes_: ReturnAttribute[] = [];
     public readonly params_: ParamDef[] = [];
-    public readonly body_: AstArg[] = [];
+    public readonly body_: CsStatement[] = [];
     public readonly typeParams_: string[] = [];
     public readonly methodAttributes_: MethodAttribute[] = [];
     public doc_: string | XmlDoc | undefined;
@@ -152,16 +154,7 @@ export class MethodNode extends AbstractAstNode {
         } else {
             writer.writeNewLineIfLastLineNot();
             writer.pushScope();
-            for (const b of this.body_) {
-                if (b instanceof Statement) {
-                    b.write(writer);
-                    writer.writeNewLineIfLastLineNot();
-                } else {
-                    writeArg(writer, b);
-                    writer.write(";");
-                    writer.writeNewLineIfLastLineNot();
-                }
-            }
+            for (const b of this.body_) writeArgStatement(writer, b);
             writer.popScope();
             writer.writeNewLineIfLastLineNot();
         }
@@ -268,7 +261,7 @@ export class Method<TState = object> {
 
     public body<S extends TState>(
         this: Method<S & (S extends IsAbstract ? never : S)>,
-        ...args: AstArg[]
+        ...args: CsStatement[]
     ): Method<S & HasBody> {
         this.node.body_.push(...args);
         return this as any;
@@ -310,7 +303,7 @@ export function method(name: string): Method {
 export class ConstructorNode extends AbstractAstNode {
     public access_: Access | undefined;
     public readonly params_: ParamDef[] = [];
-    public readonly body_: AstArg[] = [];
+    public readonly body_: CsStatement[] = [];
     public readonly attributes_: MethodAttribute[] = [];
     public doc_: string | XmlDoc | undefined;
 
@@ -345,36 +338,46 @@ export class ConstructorNode extends AbstractAstNode {
         writer.write(")");
         writer.writeNewLineIfLastLineNot();
         writer.pushScope();
-        for (const b of this.body_) {
-            if (b instanceof Statement) {
-                b.write(writer);
-                writer.writeNewLineIfLastLineNot();
-            } else {
-                writeArg(writer, b);
-                writer.write(";");
-                writer.writeNewLineIfLastLineNot();
-            }
-        }
+        for (const b of this.body_) writeArgStatement(writer, b);
         writer.popScope();
         writer.writeNewLineIfLastLineNot();
     }
 }
 
-export class Constructor {
+export class Constructor<TState = object> {
     constructor(private readonly node: ConstructorNode) {}
 
-    public access(a: Access): this { this.node.access_ = a; return this; }
-
+    // Always available
     public attribute(attr: MethodAttribute): this { this.node.attributes_.push(attr); return this; }
     public attributes(attrs: MethodAttribute[]): this { this.node.attributes_.push(...attrs); return this; }
-
     public param(def: ParamDef): this { this.node.params_.push(def); return this; }
     public params(defs: ParamDef[]): this { this.node.params_.push(...defs); return this; }
-
-    public body(...args: AstArg[]): this { this.node.body_.push(...args); return this; }
-
     public doc(d: string | XmlDoc): this { this.node.doc_ = d; return this; }
-    public build(): ConstructorNode { return this.node; }
+
+    // access() — only callable once
+    public access<S extends TState>(
+        this: Constructor<S & (S extends HasAccess ? never : S)>,
+        a: Access,
+    ): Constructor<S & HasAccess> {
+        this.node.access_ = a;
+        return this as any;
+    }
+
+    // body() — accumulates statements, marks HasBody
+    public body<S extends TState>(
+        this: Constructor<S>,
+        ...args: CsStatement[]
+    ): Constructor<S & HasBody> {
+        this.node.body_.push(...args);
+        return this as any;
+    }
+
+    // build() — only available after body()
+    public build<S extends TState>(
+        this: Constructor<S & (S extends HasBody ? S : never)>,
+    ): ConstructorNode {
+        return this.node;
+    }
 }
 
 export function ctor(name: string): Constructor {

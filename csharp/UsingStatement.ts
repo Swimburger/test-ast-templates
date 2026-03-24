@@ -20,9 +20,10 @@ import { type AstArg, writeArg } from "../core/AstTemplate.js";
 import type { IWriter } from "../core/IWriter.js";
 import { Statement } from "./Statement.js";
 import { writeArgStatement } from "./helpers.js";
+import type { CsStatement } from "./slots.js";
 
 export class UsingStatementNode extends Statement {
-    public readonly body_: AstArg[] = [];
+    public readonly body_: CsStatement[] = [];
     public declaration_ = false;
 
     constructor(
@@ -52,7 +53,7 @@ export class UsingStatementNode extends Statement {
 export class UsingStatement {
     constructor(private readonly node: UsingStatementNode) {}
 
-    public body(...args: AstArg[]): this {
+    public body(...args: CsStatement[]): this {
         this.node.body_.push(...args);
         return this;
     }

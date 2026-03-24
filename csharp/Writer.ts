@@ -1,10 +1,11 @@
 import { AbstractWriter, type IndentStyle } from "../core/AbstractWriter.js";
+import { CSHARP_CONFIG } from "../core/ILanguageConfig.js";
 import type { Reference } from "../core/Reference.js";
 import type { CSharpReference } from "./Reference.js";
 
 export class Writer extends AbstractWriter {
     constructor(opts: { indentStyle?: IndentStyle } = {}) {
-        super(opts);
+        super({ ...opts, languageConfig: CSHARP_CONFIG });
     }
 
     // Collected namespaces for `using` directives, in insertion order.
