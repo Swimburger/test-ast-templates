@@ -2,15 +2,20 @@ import type { AbstractAstNode } from "./AbstractAstNode.js";
 import type { IWriter } from "./IWriter.js";
 import type { Reference } from "./Reference.js";
 import type { ILanguageConfig } from "./ILanguageConfig.js";
-
-export type IndentStyle =
-    | { type: "tab" }
-    | { type: "spaces"; size: number };
+import type { IndentStyle } from "./AbstractWriter.js";
 
 const DEFAULT_INDENT: IndentStyle = { type: "spaces", size: 4 };
 
-export abstract class AbstractWriter implements IWriter {
-    private buffer_: string = "";
+/**
+ * Stream-based writer: accumulates chunks in a string[] instead of
+ * concatenating into a single string on every write. The array is only
+ * joined in toString(), which is called once at the end.
+ *
+ * Drop-in replacement for AbstractWriter — same interface, same behaviour,
+ * different internal storage strategy.
+ */
+export abstract class AbstractChunkWriter implements IWriter {
+    private chunks: string[] = [];
     private indentLevel = 0;
     private lastCharacterIsNewline = false;
     private lastCharacterIsTerminator = false;
@@ -32,7 +37,7 @@ export abstract class AbstractWriter implements IWriter {
     }
 
     protected get buffer(): string {
-        return this.buffer_;
+        return this.chunks.join("");
     }
 
     public addReference(_ref: Reference): void {}
@@ -100,8 +105,22 @@ export abstract class AbstractWriter implements IWriter {
         const tab = this.tabUnit;
         this.indentString = this.indentString.slice(0, -tab.length);
         this.newlineWithIndent = `\n${this.indentString}`;
-        if (this.buffer_.endsWith(this.newlineWithIndent + tab)) {
-            this.buffer_ = this.buffer_.slice(0, -tab.length);
+        // Trim the trailing indent tab from the last chunk when possible
+        // (the common case — indent() always pushes exactly one tabUnit chunk).
+        const last = this.chunks[this.chunks.length - 1];
+        if (last !== undefined && last.endsWith(tab)) {
+            const trimmed = last.slice(0, -tab.length);
+            if (trimmed.length === 0) {
+                this.chunks.pop();
+            } else {
+                this.chunks[this.chunks.length - 1] = trimmed;
+            }
+        } else {
+            // Rare path: tab spans multiple chunks — join and trim once.
+            const joined = this.chunks.join("");
+            if (joined.endsWith(this.newlineWithIndent + tab)) {
+                this.chunks = [joined.slice(0, -tab.length)];
+            }
         }
     }
 
@@ -132,12 +151,12 @@ export abstract class AbstractWriter implements IWriter {
     }
 
     public toString(): string {
-        return this.buffer_;
+        return this.chunks.join("");
     }
 
     protected writeRaw(text: string): void {
         if (text.length === 0) return;
-        this.buffer_ += text;
+        this.chunks.push(text);
         this.lastCharacterIsNewline = text === this.newlineWithIndent || text === "\n";
         this.lastCharacterIsTerminator = this.hasTerminator && text.endsWith(this.languageConfig.statementTerminator);
     }
